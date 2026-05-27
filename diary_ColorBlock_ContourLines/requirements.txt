@@ -1,0 +1,10 @@
+# Legacy dependency note:
+# Prefer the root pyproject.toml / uv.lock for environment setup.
+# Keep this file only as a subproject compatibility reference.
+jieba
+numpy
+scipy
+scikit-learn
+scikit-image
+cairocffi
+Pillow

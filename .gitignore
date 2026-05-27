@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+Qwen3-Embedding-0.6B/
+diary_vectors/
+vectors/
+output/
+output_All/
+Qwen3-Embedding-0.6B.mirror/
+Qwen3-Embedding-0.6B.modelscope/
+_diary_sentence_vectors_viz/
+diary_sentence_vectors/
+.cache
+.plot_cache
+*.json
