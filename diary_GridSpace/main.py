@@ -30,13 +30,24 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.path import Path as MplPath
 from sklearn.decomposition import PCA
 
 BG_COLOR = "#EDE7E0"
 LINE_COLOR = "#CD3700"
 FRAME_COLOR = "#CD3700"
-TEXT_COLOR = "#8C8C8C"
+FOOTER_LABEL_COLOR = "#6E13FF"
+FOOTER_LABEL_FONT_PATH = Path.home() / "Library/Fonts/AkzidenzGrotesk-Regular.otf"
+FOOTER_LABEL_FONT_FAMILY = "Akzidenz-Grotesk BQ"
+# 底部标签字号，单位是逻辑画布坐标；数值越小，文字越小。
+FOOTER_LABEL_FONT_SIZE = 10
+# 底部标签垂直中心位置，单位是逻辑画布坐标；数值越大，文字越靠上。
+FOOTER_LABEL_Y = 10.0
+# 左侧页码标签相对画布左边缘的水平位置；数值越大，文字越向右。
+FOOTER_LEFT_LABEL_X = 20.0
+# 右侧日期标签相对画布右边缘的水平内收距离；数值越大，文字越向左。
+FOOTER_RIGHT_LABEL_X_PADDING = 20.0
 
 BASE_CONTENT_SIZE = 1000
 DEFAULT_CONTENT_SIZE = 1000
@@ -151,6 +162,17 @@ def parse_args() -> argparse.Namespace:
     if args.resolution < 1:
         parser.error("--resolution must be a positive integer")
     return args
+
+
+def footer_label_font() -> font_manager.FontProperties:
+    if FOOTER_LABEL_FONT_PATH.exists():
+        font_manager.fontManager.addfont(str(FOOTER_LABEL_FONT_PATH))
+        return font_manager.FontProperties(
+            fname=str(FOOTER_LABEL_FONT_PATH), style="normal", weight="normal"
+        )
+    return font_manager.FontProperties(
+        family=FOOTER_LABEL_FONT_FAMILY, style="normal", weight="normal"
+    )
 
 
 def discover_dates(root: Path, only_date: str | None = None) -> list[str]:
@@ -686,21 +708,26 @@ def plot_grid_with_hole(
 
     # edition-like texts
     num_sent = meta.get("num_sentences", 0)
+    footer_font = footer_label_font()
     ax.text(
-        spec.s(70),
-        spec.s(25),
+        spec.s(FOOTER_LEFT_LABEL_X),
+        spec.s(FOOTER_LABEL_Y),
         f"1/{max(num_sent,1)}",
-        color=TEXT_COLOR,
-        fontsize=spec.raster_s(10),
-        style="italic",
+        color=FOOTER_LABEL_COLOR,
+        fontproperties=footer_font,
+        fontsize=spec.raster_s(FOOTER_LABEL_FONT_SIZE),
+        ha="left",
+        va="center",
     )
     ax.text(
-        spec.content_w - spec.s(260),
-        spec.s(26),
+        spec.content_w - spec.s(FOOTER_RIGHT_LABEL_X_PADDING),
+        spec.s(FOOTER_LABEL_Y),
         date,
-        color=TEXT_COLOR,
-        fontsize=spec.raster_s(10),
-        style="italic",
+        color=FOOTER_LABEL_COLOR,
+        fontproperties=footer_font,
+        fontsize=spec.raster_s(FOOTER_LABEL_FONT_SIZE),
+        ha="right",
+        va="center",
     )
 
     ax.set_xlim(0, spec.content_w)
