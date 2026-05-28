@@ -32,10 +32,9 @@ import numpy as np
 from diary_core.embedding import QwenEmbedder
 from PIL import Image, ImageDraw, ImageFilter
 
-
 BASE_CONTENT_SIZE = 1000
 DEFAULT_CONTENT_SIZE = 1000
-DEFAULT_RESOLUTION = 2160
+DEFAULT_RESOLUTION = 1400
 
 CANVAS_W = DEFAULT_CONTENT_SIZE
 CANVAS_H = DEFAULT_CONTENT_SIZE
@@ -49,15 +48,15 @@ FRAME_COLOR = (104, 92, 76)
 # Earthy + blue/teal accents close to the reference image feeling.
 PALETTE = np.array(
     [
-        [196, 96, 58],   # brick red
+        [196, 96, 58],  # brick red
         [174, 118, 55],  # ochre
         [127, 145, 73],  # olive green
-        [69, 115, 59],   # deep green
+        [69, 115, 59],  # deep green
         [66, 107, 152],  # muted blue
         [70, 142, 145],  # cyan teal
-        [98, 84, 76],    # brown gray
-        [42, 42, 42],    # near-black accent
-        [171, 161, 148], # warm gray
+        [98, 84, 76],  # brown gray
+        [42, 42, 42],  # near-black accent
+        [171, 161, 148],  # warm gray
         [215, 152, 82],  # sand orange
     ],
     dtype=np.float32,
@@ -102,16 +101,30 @@ class RenderSpec:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate colorful line blocks from diary vectors")
-    parser.add_argument("--root", default=None, help="Project root. Defaults to parent of this script")
-    parser.add_argument("--entries", default="diary_entries.json", help="Diary json path relative to root")
-    parser.add_argument("--model-dir", default="Qwen3-Embedding-0.6B", help="Model dir relative to root")
+    parser = argparse.ArgumentParser(
+        description="Generate colorful line blocks from diary vectors"
+    )
+    parser.add_argument(
+        "--root", default=None, help="Project root. Defaults to parent of this script"
+    )
+    parser.add_argument(
+        "--entries",
+        default="diary_entries.json",
+        help="Diary json path relative to root",
+    )
+    parser.add_argument(
+        "--model-dir", default="Qwen3-Embedding-0.6B", help="Model dir relative to root"
+    )
     parser.add_argument(
         "--out-dir",
         default=None,
         help="Output base dir. Defaults to <root>/output_All/<this program folder>.",
     )
-    parser.add_argument("--cache-dir", default="cache_char_vectors", help="Char vector cache dir (relative to this script dir)")
+    parser.add_argument(
+        "--cache-dir",
+        default="cache_char_vectors",
+        help="Char vector cache dir (relative to this script dir)",
+    )
     parser.add_argument(
         "--char-vector-source",
         choices=["auto", "semantic", "cache", "model"],
@@ -121,9 +134,20 @@ def parse_args() -> argparse.Namespace:
             "model explicitly rebuilds char-context embeddings."
         ),
     )
-    parser.add_argument("--date", default=None, help="Optional single date stem, e.g. 2026-03-10")
-    parser.add_argument("--max-chars", type=int, default=0, help="Optional cap for chars per entry (0 means all)")
-    parser.add_argument("--png-only", action="store_true", help="Only render PNGs; skip svg_try_N output.")
+    parser.add_argument(
+        "--date", default=None, help="Optional single date stem, e.g. 2026-03-10"
+    )
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=0,
+        help="Optional cap for chars per entry (0 means all)",
+    )
+    parser.add_argument(
+        "--png-only",
+        action="store_true",
+        help="Only render PNGs; skip svg_try_N output.",
+    )
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--dpi", type=int, default=220)
     parser.add_argument(
@@ -168,7 +192,9 @@ def load_entries(entries_path: Path) -> list[Entry]:
     return out
 
 
-def next_try_dirs(base: Path, export_png: bool = True, export_svg: bool = True) -> tuple[Path | None, Path | None]:
+def next_try_dirs(
+    base: Path, export_png: bool = True, export_svg: bool = True
+) -> tuple[Path | None, Path | None]:
     base.mkdir(parents=True, exist_ok=True)
     max_idx = 0
     for p in base.iterdir():
@@ -237,7 +263,9 @@ def dynamic_embed(texts: list[str], embedder: QwenEmbedder) -> np.ndarray:
     return np.asarray([v for v in vecs if v is not None], dtype=np.float32)
 
 
-def char_context_units(content: str, radius: int = 2, max_chars: int = 0) -> tuple[list[str], list[int], list[str]]:
+def char_context_units(
+    content: str, radius: int = 2, max_chars: int = 0
+) -> tuple[list[str], list[int], list[str]]:
     chars = list(content)
     n = len(chars)
     snippets: list[str] = []
@@ -295,7 +323,9 @@ def pca2(x: np.ndarray) -> np.ndarray:
     return z.astype(np.float32)
 
 
-def pick_palette_color(values: Iterable[float], rng: np.random.Generator, vivid: float = 1.2) -> tuple[int, int, int]:
+def pick_palette_color(
+    values: Iterable[float], rng: np.random.Generator, vivid: float = 1.2
+) -> tuple[int, int, int]:
     vals = np.asarray(list(values), dtype=np.float32)
     if vals.size == 0:
         return tuple(int(v) for v in PALETTE[0])
@@ -352,7 +382,11 @@ def draw_hatch_cluster(
             width=max(1, int(round(lw * draw_scale))),
         )
         if collector is not None:
-            collector.append(HatchLine(x0=x0, y0=y0, x1=x1, y1=y1, color=color, alpha=alpha, width=lw))
+            collector.append(
+                HatchLine(
+                    x0=x0, y0=y0, x1=x1, y1=y1, color=color, alpha=alpha, width=lw
+                )
+            )
 
 
 def rgb_hex(color: tuple[int, int, int]) -> str:
@@ -384,7 +418,7 @@ def write_svg(
 ) -> None:
     title = escape(f"diary_ColorfulLines {date}")
 
-    body = f'''<?xml version="1.0" encoding="UTF-8"?>
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{spec.output_w}" height="{spec.output_h}" viewBox="0 0 {spec.content_w} {spec.content_h}">
   <title>{title}</title>
   <defs>
@@ -405,7 +439,7 @@ def write_svg(
 {svg_line_elements(footer_lines)}
   </g>
 </svg>
-'''
+"""
     svg_path.parent.mkdir(parents=True, exist_ok=True)
     svg_path.write_text(body, encoding="utf-8")
 
@@ -451,8 +485,14 @@ def render_one(
     canvas = Image.new("RGBA", (spec.output_w, spec.output_h), BG_COLOR + (255,))
 
     # Slight paper grain underlay.
-    grain = rng.normal(0.0, 8.5, size=(spec.output_h, spec.output_w, 1)).astype(np.float32)
-    paper = np.full((spec.output_h, spec.output_w, 3), np.array(BG_COLOR, dtype=np.float32), dtype=np.float32)
+    grain = rng.normal(0.0, 8.5, size=(spec.output_h, spec.output_w, 1)).astype(
+        np.float32
+    )
+    paper = np.full(
+        (spec.output_h, spec.output_w, 3),
+        np.array(BG_COLOR, dtype=np.float32),
+        dtype=np.float32,
+    )
     paper = np.clip(paper + grain, 0, 255).astype(np.uint8)
     paper_img = Image.fromarray(paper, mode="RGB").convert("RGBA")
     canvas = Image.blend(canvas, paper_img, alpha=0.12)
@@ -507,7 +547,19 @@ def render_one(
         color = pick_palette_color(palette_scores, rng, vivid=1.28)
 
         # Two-layer hatching for pencil buildup.
-        draw_hatch_cluster(draw_a, rng, cx, cy, theta, base_len, base_wid, color, alpha, collector=svg_layer_a, draw_scale=scale)
+        draw_hatch_cluster(
+            draw_a,
+            rng,
+            cx,
+            cy,
+            theta,
+            base_len,
+            base_wid,
+            color,
+            alpha,
+            collector=svg_layer_a,
+            draw_scale=scale,
+        )
         draw_hatch_cluster(
             draw_b,
             rng,
@@ -530,30 +582,50 @@ def render_one(
     # Frame and footer strip, similar to reference composition.
     frame = ImageDraw.Draw(canvas, "RGBA")
     frame.rectangle(
-        [6 * scale, 6 * scale, (spec.content_w - 6) * scale, (spec.content_h - 6) * scale],
+        [
+            6 * scale,
+            6 * scale,
+            (spec.content_w - 6) * scale,
+            (spec.content_h - 6) * scale,
+        ],
         outline=FRAME_COLOR + (210,),
         width=max(1, int(round(3 * scale))),
     )
     frame.rectangle(
-        [18 * scale, 18 * scale, (spec.content_w - 18) * scale, (spec.content_h - 18) * scale],
+        [
+            18 * scale,
+            18 * scale,
+            (spec.content_w - 18) * scale,
+            (spec.content_h - 18) * scale,
+        ],
         outline=FRAME_COLOR + (180,),
         width=max(1, int(round(1 * scale))),
     )
 
     footer_h = int(spec.content_h * 0.18)
     y0 = spec.content_h - footer_h
-    frame.rectangle([0, y0 * scale, spec.output_w, (y0 + 1) * scale], fill=FRAME_COLOR + (120,))
+    frame.rectangle(
+        [0, y0 * scale, spec.output_w, (y0 + 1) * scale], fill=FRAME_COLOR + (120,)
+    )
 
     # Add sparse low-density echoes in footer.
     footer_layer = Image.new("RGBA", (spec.output_w, spec.output_h), (0, 0, 0, 0))
     footer_draw = ImageDraw.Draw(footer_layer, "RGBA")
-    pick = np.linspace(0, max(n - 1, 0), min(140, max(1, n // 3))).astype(int) if n else np.array([], dtype=int)
+    pick = (
+        np.linspace(0, max(n - 1, 0), min(140, max(1, n // 3))).astype(int)
+        if n
+        else np.array([], dtype=int)
+    )
     for idx in pick:
         px = float(softsig(np.array([2.0 * (zx[idx] - 0.5)]))[0])
         cx = MARGIN + px * inner_w + float(rng.normal(0.0, 8.0))
         cy = y0 + 16 + float(rng.random()) * (footer_h - 28)
         theta = math.radians(84 + 20 * (zy[idx] - 0.5))
-        color = pick_palette_color([sim_diary_n[idx], sim_s[idx], 1.0 - sim_w[idx], density[idx]], rng, vivid=1.15)
+        color = pick_palette_color(
+            [sim_diary_n[idx], sim_s[idx], 1.0 - sim_w[idx], density[idx]],
+            rng,
+            vivid=1.15,
+        )
         draw_hatch_cluster(
             footer_draw,
             rng,
@@ -600,7 +672,9 @@ def render_one(
     return info
 
 
-def load_event_vectors(root: Path, stem: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+def load_event_vectors(
+    root: Path, stem: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     diary_vec_file = root / "diary_vectors" / f"{stem}.npy"
     sent_dir = root / "diary_sentence_vectors" / stem
     if not diary_vec_file.exists():
@@ -675,7 +749,10 @@ def semantic_char_vectors(
         vec = 0.64 * sv[sent_idx] + 0.26 * wv[win_idx] + 0.10 * d
         phase = char_order / max(order - 1, 1)
         wobble_dims = min(32, dim)
-        wobble = np.sin(np.linspace(0.0, 2.0 * math.pi, wobble_dims, endpoint=False) + phase * math.tau)
+        wobble = np.sin(
+            np.linspace(0.0, 2.0 * math.pi, wobble_dims, endpoint=False)
+            + phase * math.tau
+        )
         vec = vec.copy()
         vec[:wobble_dims] += (0.018 * wobble).astype(np.float32)
         out[row] = normalized(vec.reshape(1, -1))[0].astype(np.float32)
@@ -704,7 +781,9 @@ def load_or_build_char_vectors(
             data = np.load(cache_file, allow_pickle=False)
             cached_snippets = data["snippets"].astype(str)
             current_snippets = np.asarray(snippets, dtype=str)
-            if len(cached_snippets) == len(snippets) and np.all(cached_snippets == current_snippets):
+            if len(cached_snippets) == len(snippets) and np.all(
+                cached_snippets == current_snippets
+            ):
                 return data["vectors"].astype(np.float32), "cache"
         except Exception:
             pass
@@ -723,7 +802,9 @@ def load_or_build_char_vectors(
         )
 
     if embedder is None:
-        raise RuntimeError("Model char vectors requested, but the embedding model is not loaded.")
+        raise RuntimeError(
+            "Model char vectors requested, but the embedding model is not loaded."
+        )
 
     # Deduplicate snippets to reduce model calls.
     uniq_map: dict[str, int] = {}
@@ -767,7 +848,9 @@ def main() -> None:
         if args.out_dir
         else root / "output_All" / script_dir.name
     )
-    out_run, svg_run = next_try_dirs(out_base, export_png=True, export_svg=not args.png_only)
+    out_run, svg_run = next_try_dirs(
+        out_base, export_png=True, export_svg=not args.png_only
+    )
     if out_run is None:
         raise RuntimeError("PNG output directory was not created.")
 
@@ -788,7 +871,9 @@ def main() -> None:
         embedder = QwenEmbedder(model_dir)
         print(f"Device: {embedder.device}")
     else:
-        print(f"Char vectors: {args.char_vector_source} (reuse cache or diary_sentence_vectors)")
+        print(
+            f"Char vectors: {args.char_vector_source} (reuse cache or diary_sentence_vectors)"
+        )
 
     summary: list[dict] = []
     total = len(entries)
@@ -796,7 +881,9 @@ def main() -> None:
     for idx, e in enumerate(entries, start=1):
         diary_vec, sentence_vecs, window_vecs, meta = load_event_vectors(root, e.stem)
 
-        snippets, positions, glyphs = char_context_units(e.content, radius=2, max_chars=args.max_chars)
+        snippets, positions, glyphs = char_context_units(
+            e.content, radius=2, max_chars=args.max_chars
+        )
         if not snippets:
             print(f"[{idx}/{total}] {e.stem}: empty after char filtering, skipped")
             continue
@@ -846,7 +933,9 @@ def main() -> None:
             {
                 "count": len(summary),
                 "output_dir": display_path(out_run, root),
-                "svg_output_dir": display_path(svg_run, root) if svg_run is not None else None,
+                "svg_output_dir": (
+                    display_path(svg_run, root) if svg_run is not None else None
+                ),
                 "seed": args.seed,
                 "entries": [display_entry_paths(item, root) for item in summary],
             },

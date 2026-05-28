@@ -37,17 +37,17 @@ from sklearn.decomposition import PCA
 BG_COLOR = "#EDE7E0"
 LINE_COLOR = "#CD3700"
 FRAME_COLOR = "#CD3700"
-FOOTER_LABEL_COLOR = "#6E13FF"
+FOOTER_LABEL_COLOR = "#CD3700"
 FOOTER_LABEL_FONT_PATH = Path.home() / "Library/Fonts/AkzidenzGrotesk-Regular.otf"
 FOOTER_LABEL_FONT_FAMILY = "Akzidenz-Grotesk BQ"
 # 底部标签字号，单位是逻辑画布坐标；数值越小，文字越小。
-FOOTER_LABEL_FONT_SIZE = 10
+FOOTER_LABEL_FONT_SIZE = 6
 # 底部标签垂直中心位置，单位是逻辑画布坐标；数值越大，文字越靠上。
 FOOTER_LABEL_Y = 10.0
 # 左侧页码标签相对画布左边缘的水平位置；数值越大，文字越向右。
-FOOTER_LEFT_LABEL_X = 20.0
+FOOTER_LEFT_LABEL_X = 25.0
 # 右侧日期标签相对画布右边缘的水平内收距离；数值越大，文字越向左。
-FOOTER_RIGHT_LABEL_X_PADDING = 20.0
+FOOTER_RIGHT_LABEL_X_PADDING = 25.0
 
 BASE_CONTENT_SIZE = 1000
 DEFAULT_CONTENT_SIZE = 1000
