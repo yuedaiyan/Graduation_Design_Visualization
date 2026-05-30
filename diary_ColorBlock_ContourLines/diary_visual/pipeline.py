@@ -210,11 +210,19 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_RESOLUTION,
         help=f"Final square PNG pixel size and SVG display size. Default: {DEFAULT_RESOLUTION}.",
     )
+    parser.add_argument(
+        "--contour-density",
+        type=float,
+        default=1.0,
+        help="Contour-line density multiplier. 1.0 keeps the default thresholds; 2.0 roughly doubles contour lines.",
+    )
     args = parser.parse_args()
     if args.content_size < 1:
         parser.error("--content-size must be a positive integer")
     if args.resolution < 1:
         parser.error("--resolution must be a positive integer")
+    if args.contour_density <= 0:
+        parser.error("--contour-density must be greater than 0")
     return args
 
 
@@ -308,9 +316,22 @@ def run() -> None:
         metaball_params = map_content_words_to_metaballs(clusters, weights, ev)
 
         if out_path is not None:
-            compose_and_save(entry, emotion, block_params, metaball_params, str(out_path))
+            compose_and_save(
+                entry,
+                emotion,
+                block_params,
+                metaball_params,
+                str(out_path),
+                contour_density=args.contour_density,
+            )
         if svg_out_path is not None:
-            compose_and_save_svg(emotion, block_params, metaball_params, str(svg_out_path))
+            compose_and_save_svg(
+                emotion,
+                block_params,
+                metaball_params,
+                str(svg_out_path),
+                contour_density=args.contour_density,
+            )
         export_paths = []
         if out_path is not None:
             export_paths.append(str(out_path))

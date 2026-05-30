@@ -54,15 +54,21 @@ LAYOUT_SCALE = 1.0
 
 BACKGROUND_COLOR = "#F4EEDC"
 INK_COLOR = "#171411"
-EDGE_ALPHA = 0.55
-EDGE_WIDTH = 0.58
-NODE_EDGE_WIDTH = 0.68
+PNG_EDGE_ALPHA = 0.55
+PNG_EDGE_WIDTH = 0.58
+PNG_NODE_EDGE_WIDTH = 0.68
 NODE_FONT_SIZE = 5.5
+SVG_EDGE_STROKE_RATIO = 0.0018
+SVG_NODE_STROKE_RATIO = SVG_EDGE_STROKE_RATIO * 0.9
+SVG_ARROW_LENGTH_RATIO = 0.014
+SVG_ARROW_WIDTH_RATIO = 0.010
+SVG_EDGE_COLOR = INK_COLOR
+SVG_EDGE_BLEND_COLOR = BACKGROUND_COLOR
+SVG_EDGE_BLEND_ALPHA = 0.72
 BASE_CONTENT_SIZE = 1000
 DEFAULT_CONTENT_SIZE = 1000
 DEFAULT_RESOLUTION = 2160
 SVG_CANVAS_SIZE = DEFAULT_CONTENT_SIZE
-SVG_OUTPUT_SIZE = DEFAULT_RESOLUTION
 PNG_OUTPUT_SIZE = DEFAULT_RESOLUTION
 SVG_DATA_LIMIT = 0.56
 FONT_FAMILY = [
@@ -365,7 +371,7 @@ def parse_args() -> argparse.Namespace:
         dest="resolution",
         type=int,
         default=DEFAULT_RESOLUTION,
-        help=f"Final square PNG pixel size and SVG display size. Default: {DEFAULT_RESOLUTION}.",
+        help=f"Final square PNG pixel size. SVG display size follows --content-size. Default: {DEFAULT_RESOLUTION}.",
     )
     args = parser.parse_args()
     if args.png_only and args.svg_only:
@@ -386,9 +392,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def set_render_sizes(content_size: int, resolution: int) -> None:
-    global SVG_CANVAS_SIZE, SVG_OUTPUT_SIZE, PNG_OUTPUT_SIZE
+    global SVG_CANVAS_SIZE, PNG_OUTPUT_SIZE
     SVG_CANVAS_SIZE = int(content_size)
-    SVG_OUTPUT_SIZE = int(resolution)
     PNG_OUTPUT_SIZE = int(resolution)
 
 
@@ -764,8 +769,8 @@ def draw_curved_arrow(
         connectionstyle=f"arc3,rad={rad}",
         facecolor=INK_COLOR,
         edgecolor=INK_COLOR,
-        lw=raster_s(EDGE_WIDTH),
-        alpha=EDGE_ALPHA,
+        lw=raster_s(PNG_EDGE_WIDTH),
+        alpha=PNG_EDGE_ALPHA,
         linestyle=linestyle,
         capstyle="round",
         joinstyle="round",
@@ -808,6 +813,33 @@ def svg_radius(radius: float) -> float:
     return radius / (SVG_DATA_LIMIT * 2.0) * SVG_CANVAS_SIZE
 
 
+def svg_stroke_width(ratio: float) -> float:
+    return max(1.0, SVG_CANVAS_SIZE * ratio)
+
+
+def blend_hex_color(foreground: str, background: str, alpha: float) -> str:
+    alpha = max(0.0, min(1.0, alpha))
+
+    def channel_pair(value: str) -> tuple[int, int, int]:
+        cleaned = value.strip().lstrip("#")
+        if len(cleaned) != 6:
+            raise ValueError(f"Expected #RRGGBB color, got {value!r}")
+        return (
+            int(cleaned[0:2], 16),
+            int(cleaned[2:4], 16),
+            int(cleaned[4:6], 16),
+        )
+
+    fg = channel_pair(foreground)
+    bg = channel_pair(background)
+    mixed = tuple(round(f * alpha + b * (1.0 - alpha)) for f, b in zip(fg, bg))
+    return f"#{mixed[0]:02X}{mixed[1]:02X}{mixed[2]:02X}"
+
+
+def svg_edge_color() -> str:
+    return blend_hex_color(SVG_EDGE_COLOR, SVG_EDGE_BLEND_COLOR, SVG_EDGE_BLEND_ALPHA)
+
+
 def trim_edge_points(
     p1: tuple[float, float],
     p2: tuple[float, float],
@@ -826,20 +858,45 @@ def trim_edge_points(
     return start, end
 
 
-def svg_edge_path(
+def svg_arrow_points(
+    tip: tuple[float, float],
+    tangent_from: tuple[float, float],
+) -> list[tuple[float, float]]:
+    dx = tip[0] - tangent_from[0]
+    dy = tip[1] - tangent_from[1]
+    distance = math.hypot(dx, dy)
+    if distance <= 1e-9:
+        return []
+    ux = dx / distance
+    uy = dy / distance
+    length = max(7.0, SVG_CANVAS_SIZE * SVG_ARROW_LENGTH_RATIO)
+    width = max(5.0, SVG_CANVAS_SIZE * SVG_ARROW_WIDTH_RATIO)
+    base_x = tip[0] - ux * length
+    base_y = tip[1] - uy * length
+    px = -uy
+    py = ux
+    half_width = width / 2.0
+    return [
+        tip,
+        (base_x + px * half_width, base_y + py * half_width),
+        (base_x - px * half_width, base_y - py * half_width),
+    ]
+
+
+def svg_edge_shape(
     p1: tuple[float, float],
     p2: tuple[float, float],
     r1: float,
     r2: float,
     edge_key: str,
-) -> str:
+) -> tuple[str, list[tuple[float, float]]]:
     start, end = trim_edge_points(p1, p2, r1, r2)
     dx = end[0] - start[0]
     dy = end[1] - start[1]
     distance = math.hypot(dx, dy)
     if distance <= 1e-9:
         sx, sy = svg_point(start)
-        return f"M {svg_num(sx)} {svg_num(sy)}"
+        return f"M {svg_num(sx)} {svg_num(sy)}", []
     sign = -1 if stable_int(edge_key) % 2 else 1
     rad = sign * 0.18
     mx = (start[0] + end[0]) / 2.0
@@ -848,7 +905,11 @@ def svg_edge_path(
     sx, sy = svg_point(start)
     cx, cy = svg_point(ctrl)
     ex, ey = svg_point(end)
-    return f"M {svg_num(sx)} {svg_num(sy)} Q {svg_num(cx)} {svg_num(cy)} {svg_num(ex)} {svg_num(ey)}"
+    arrow_points = svg_arrow_points((ex, ey), (cx, cy))
+    return (
+        f"M {svg_num(sx)} {svg_num(sy)} Q {svg_num(cx)} {svg_num(cy)} {svg_num(ex)} {svg_num(ey)}",
+        arrow_points,
+    )
 
 
 def write_svg_foreground(
@@ -857,20 +918,19 @@ def write_svg_foreground(
     node_codes: dict[str, NodeCode],
     geometry: RenderGeometry,
 ) -> None:
+    canvas_size = svg_num(SVG_CANVAS_SIZE)
+    edge_stroke = svg_num(svg_stroke_width(SVG_EDGE_STROKE_RATIO))
+    node_stroke = svg_num(svg_stroke_width(SVG_NODE_STROKE_RATIO))
+    edge_color = svg_edge_color()
     lines: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_OUTPUT_SIZE}" height="{SVG_OUTPUT_SIZE}" viewBox="0 0 {SVG_CANVAS_SIZE} {SVG_CANVAS_SIZE}">',
-        "  <defs>",
-        '    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">',
-        f'      <path d="M 0 0 L 7 3.5 L 0 7 z" fill="{INK_COLOR}" opacity="{EDGE_ALPHA}"/>',
-        "    </marker>",
-        "  </defs>",
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_size}" height="{canvas_size}" viewBox="0 0 {canvas_size} {canvas_size}">',
         '  <g fill="none" stroke-linecap="round" stroke-linejoin="round">',
     ]
 
     for source, target in sorted(graph.edges):
         info = graph.edges[source, target]["edge_info"]
         arrow_source, arrow_target = choose_edge_direction(source, target, info)
-        path = svg_edge_path(
+        path, arrow_points = svg_edge_shape(
             geometry.pos[arrow_source],
             geometry.pos[arrow_target],
             geometry.radii[arrow_source],
@@ -879,9 +939,12 @@ def write_svg_foreground(
         )
         dash = "" if edge_is_solid(info) else ' stroke-dasharray="4 3"'
         lines.append(
-            f'    <path d="{path}" stroke="{INK_COLOR}" stroke-width="{svg_num(EDGE_WIDTH)}" '
-            f'opacity="{EDGE_ALPHA}" marker-end="url(#arrow)"{dash}/>'
+            f'    <path d="{path}" fill="none" stroke="{edge_color}" '
+            f'stroke-width="{edge_stroke}"{dash}/>'
         )
+        if arrow_points:
+            points = " ".join(f"{svg_num(x)},{svg_num(y)}" for x, y in arrow_points)
+            lines.append(f'    <polygon points="{points}" fill="{edge_color}"/>')
 
     lines.append("  </g>")
     lines.append('  <g font-family="Source Han Sans CN VF, Source Han Sans CN, Hiragino Sans GB, sans-serif" text-anchor="middle" dominant-baseline="central">')
@@ -892,7 +955,7 @@ def write_svg_foreground(
         radius = svg_radius(geometry.radii[node])
         lines.append(
             f'    <circle cx="{svg_num(x)}" cy="{svg_num(y)}" r="{svg_num(radius)}" '
-            f'stroke="{color}" stroke-width="{svg_num(NODE_EDGE_WIDTH)}" fill="none"/>'
+            f'stroke="{color}" stroke-width="{node_stroke}" fill="none"/>'
         )
         lines.append(
             f'    <text x="{svg_num(x)}" y="{svg_num(y)}" fill="{color}" '
@@ -934,7 +997,7 @@ def draw_png_foreground(
                 radius=radius,
                 edgecolor=color,
                 facecolor="none",
-                lw=raster_s(NODE_EDGE_WIDTH),
+                lw=raster_s(PNG_NODE_EDGE_WIDTH),
                 zorder=3,
             )
             ax.add_patch(circle)

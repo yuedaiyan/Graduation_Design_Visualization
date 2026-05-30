@@ -46,10 +46,18 @@ output_All/diary_ColorBlock_ContourLines/svg_try_N/<stem>.svg
 
 默认同时写 PNG 和 SVG；传入 `--png-only` 时只写 PNG，传入 `--svg-only` 时只写 SVG。
 
+等高线密度可以通过 `--contour-density` 调整，默认 `1.0` 保持原样：
+
+```bash
+uv run python diary_ColorBlock_ContourLines/main.py --date 2025-06-27 --svg-only --contour-density 2.0
+```
+
+`2.0` 会在原有等值线范围内插入更多阈值，约等于把背景等高线数量翻倍；小于 `1.0` 则会减少线条。
+
 ## 主函数和关键函数
 
 - `main.py`：很薄的命令入口，只导入并执行 `diary_visual.pipeline.run()`。
-- `diary_visual.pipeline._parse_args()`：定义 `--date`、`--limit`、`--out-dir`、`--png-only`、`--svg`、`--svg-only`。
+- `diary_visual.pipeline._parse_args()`：定义 `--date`、`--limit`、`--out-dir`、`--png-only`、`--svg`、`--svg-only`、`--contour-density`。
 - `diary_visual.pipeline.run()`：总调度函数，读取日记、篇级向量和句向量，匹配 stem，建立输出目录，逐篇渲染。
 - `_load_entries_by_stem()`：把 `diary_entries.json` 中重复日期转成和向量文件一致的 stem，如 `2024-03-08_2`。
 - `_load_or_build_doc_freq()`：统计或读取词的文档频率缓存，用于实词权重。

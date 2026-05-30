@@ -33,7 +33,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 KEYWORD_COUNTS_FILE = "diary_entries.merged.sentence_counts.json"
 TOP_KEYWORDS = 100
 
-SKIP_KEYWORD_RANKS = {16, 43, 92}
+SKIP_KEYWORD_RANKS = {16, 43, 92, 166, 195}
 
 NOTEBOOK_CHARS_PER_LINE = 56
 NOTEBOOK_LINES_PER_PAGE = 28

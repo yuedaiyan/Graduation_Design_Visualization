@@ -295,7 +295,27 @@ def _draw_smooth_contour(ctx: cairo.Context, points: np.ndarray, closed: bool = 
         ctx.close_path()
 
 
-def _draw_line_layer(surface, metaball_params: list[dict], stroke_color_hex: str, surface_scale: float = 1.0) -> None:
+def _contour_thresholds_for_density(contour_density: float) -> list[float]:
+    if contour_density == 1.0:
+        return METABALL_THRESHOLDS
+    if not METABALL_THRESHOLDS:
+        return []
+
+    target_count = max(1, int(round(len(METABALL_THRESHOLDS) * contour_density)))
+    if target_count == len(METABALL_THRESHOLDS):
+        return METABALL_THRESHOLDS
+    if target_count == 1:
+        return [float(METABALL_THRESHOLDS[len(METABALL_THRESHOLDS) // 2])]
+    return [float(v) for v in np.linspace(METABALL_THRESHOLDS[0], METABALL_THRESHOLDS[-1], target_count)]
+
+
+def _draw_line_layer(
+    surface,
+    metaball_params: list[dict],
+    stroke_color_hex: str,
+    surface_scale: float = 1.0,
+    contour_density: float = 1.0,
+) -> None:
     if not metaball_params:
         return
     from skimage import measure
@@ -306,8 +326,9 @@ def _draw_line_layer(surface, metaball_params: list[dict], stroke_color_hex: str
     sr, sg, sb = hex_to_rgb(stroke_color_hex)
     field = _build_metaball_field(metaball_params)
 
-    t_count = max(len(METABALL_THRESHOLDS), 1)
-    for ti, threshold in enumerate(METABALL_THRESHOLDS):
+    thresholds = _contour_thresholds_for_density(contour_density)
+    t_count = max(len(thresholds), 1)
+    for ti, threshold in enumerate(thresholds):
         contours = measure.find_contours(field, level=threshold)
         for contour in contours:
             if len(contour) < 6:
@@ -360,6 +381,7 @@ def _paint_visual(
     block_params: list[dict],
     metaball_params: list[dict],
     surface_scale: float = 1.0,
+    contour_density: float = 1.0,
 ) -> None:
     emotion_cfg = EMOTION_SYSTEM.get(emotion, EMOTION_SYSTEM["calm"])
     bg_r, bg_g, bg_b = hex_to_rgb(emotion_cfg["bg"])
@@ -369,14 +391,34 @@ def _paint_visual(
     ctx.set_source_rgb(bg_r, bg_g, bg_b)
     ctx.paint()
 
-    _draw_line_layer(surface, metaball_params, stroke_hex, surface_scale=surface_scale)
+    _draw_line_layer(
+        surface,
+        metaball_params,
+        stroke_hex,
+        surface_scale=surface_scale,
+        contour_density=contour_density,
+    )
     _draw_block_layer(surface, block_params, surface_scale=surface_scale)
 
 
-def compose_and_save(entry: dict, emotion: str, block_params: list[dict], metaball_params: list[dict], output_path: str) -> None:
+def compose_and_save(
+    entry: dict,
+    emotion: str,
+    block_params: list[dict],
+    metaball_params: list[dict],
+    output_path: str,
+    contour_density: float = 1.0,
+) -> None:
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, OUTPUT_SIZE, OUTPUT_SIZE)
     surface_scale = OUTPUT_SIZE / CANVAS_SIZE
-    _paint_visual(surface, emotion, block_params, metaball_params, surface_scale=surface_scale)
+    _paint_visual(
+        surface,
+        emotion,
+        block_params,
+        metaball_params,
+        surface_scale=surface_scale,
+        contour_density=contour_density,
+    )
 
     img_array = np.array(_cairo_surface_to_pil(surface))
     # 先注释掉随机噪点
@@ -397,9 +439,15 @@ def _set_svg_display_size(output_path: str) -> None:
     open(output_path, "w", encoding="utf-8").write(text)
 
 
-def compose_and_save_svg(emotion: str, block_params: list[dict], metaball_params: list[dict], output_path: str) -> None:
+def compose_and_save_svg(
+    emotion: str,
+    block_params: list[dict],
+    metaball_params: list[dict],
+    output_path: str,
+    contour_density: float = 1.0,
+) -> None:
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
     surface = cairo.SVGSurface(output_path, CANVAS_SIZE, CANVAS_SIZE)
-    _paint_visual(surface, emotion, block_params, metaball_params)
+    _paint_visual(surface, emotion, block_params, metaball_params, contour_density=contour_density)
     surface.finish()
     _set_svg_display_size(output_path)
