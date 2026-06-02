@@ -29,6 +29,7 @@ from .config import (
 from .rendering import (
     compose_and_save,
     compose_and_save_svg,
+    compute_semantic_dispersion,
     map_content_words_to_metaballs,
     map_function_word_to_block,
     set_render_sizes,
@@ -309,11 +310,24 @@ def run() -> None:
 
         fw_tokens = analyze_function_words(entry["content"], job["sentence_vectors"], ev)
         _, clusters, weights = get_entry_content_word_data(entry["content"], doc_freq, total_docs)
+        semantic_dispersion = compute_semantic_dispersion(job["sentence_vectors"], ev)
         block_params = [
-            map_function_word_to_block(tok, emotion, ev, token_index=idx, total_tokens=len(fw_tokens))
+            map_function_word_to_block(
+                tok,
+                emotion,
+                ev,
+                token_index=idx,
+                total_tokens=len(fw_tokens),
+                semantic_dispersion=semantic_dispersion,
+            )
             for idx, tok in enumerate(fw_tokens)
         ]
-        metaball_params = map_content_words_to_metaballs(clusters, weights, ev)
+        metaball_params = map_content_words_to_metaballs(
+            clusters,
+            weights,
+            ev,
+            semantic_dispersion=semantic_dispersion,
+        )
 
         if out_path is not None:
             compose_and_save(

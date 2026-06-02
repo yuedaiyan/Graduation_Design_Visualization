@@ -41,6 +41,13 @@ from .config import (
     BLOCK_MIN_SIZE,
     BLOCK_OPACITY_MAX,
     BLOCK_OPACITY_MIN,
+    BLOCK_CURVE_AMPLITUDE,
+    BLOCK_CURVE_JITTER,
+    BLOCK_CURVE_SCATTER_SCALE,
+    BLOCK_CATEGORY_SCALE_POWER,
+    BLOCK_SEMANTIC_SPREAD_MAX,
+    BLOCK_SEMANTIC_SPREAD_MIN,
+    BLOCK_SIZE_INTENSITY_INFLUENCE,
     BLOCK_SIZE_POWER,
     BLOCK_SIZE_SCALE,
     BLOCK_SPREAD_CURVE,
@@ -53,15 +60,22 @@ from .config import (
     EMOTION_SYSTEM,
     EXISTENTIAL_OPACITY_CAP,
     LINE_LAYER_COVERAGE,
+    METABALL_ANISOTROPY,
     METABALL_BASE_RADIUS,
+    METABALL_CALM_ANISOTROPY_RATIO,
+    METABALL_CALM_WARP_RATIO,
     METABALL_EXTRA_BALLS,
     METABALL_EXTRA_RADIUS_SCALE,
     METABALL_GRID_RES,
     METABALL_RADIUS_MAX,
     METABALL_RADIUS_MIN,
     METABALL_THRESHOLDS,
+    METABALL_WARP_FREQUENCY,
+    METABALL_WARP_STRENGTH,
     NOISE_STRENGTH,
     OUTPUT_SIZE,
+    SEMANTIC_DISPERSION_HIGH,
+    SEMANTIC_DISPERSION_LOW,
     STROKE_WIDTH,
 )
 
@@ -104,12 +118,79 @@ def _vec_signed(vec: np.ndarray, idx: int, default: float = 0.0) -> float:
     return _vec_unit(vec, idx, 0.5) * 2.0 - 1.0 if vec is not None and vec.size > 0 else default
 
 
+def _normalized_rows(vectors: np.ndarray | None) -> np.ndarray:
+    if vectors is None:
+        return np.empty((0, 0), dtype=np.float32)
+    arr = np.asarray(vectors, dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.ndim != 2 or arr.shape[1] == 0:
+        return np.empty((0, 0), dtype=np.float32)
+    finite = np.isfinite(arr).all(axis=1)
+    arr = arr[finite]
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    arr = arr[norms[:, 0] > 1e-9]
+    norms = norms[norms[:, 0] > 1e-9]
+    return arr / (norms + 1e-9)
+
+
+def compute_semantic_dispersion(sentence_vectors: np.ndarray | None, entry_vector: np.ndarray) -> float:
+    sent = _normalized_rows(sentence_vectors)
+    if len(sent) < 2:
+        return 0.0
+
+    transition_dist = 1.0 - np.sum(sent[:-1] * sent[1:], axis=1)
+    transition_dist = np.clip(transition_dist, 0.0, 2.0)
+    transition_mean = float(np.mean(transition_dist))
+    transition_std = float(np.std(transition_dist))
+
+    entry = _normalized_rows(entry_vector)
+    if len(entry) == 1 and entry.shape[1] == sent.shape[1]:
+        entry_dist = 1.0 - sent @ entry[0]
+        entry_dist = np.clip(entry_dist, 0.0, 2.0)
+        entry_spread = float(np.std(entry_dist))
+    else:
+        entry_spread = 0.0
+
+    raw = 0.58 * transition_mean + 0.25 * transition_std + 0.17 * entry_spread
+    span = max(SEMANTIC_DISPERSION_HIGH - SEMANTIC_DISPERSION_LOW, 1e-6)
+    return float(max(0.0, min(1.0, (raw - SEMANTIC_DISPERSION_LOW) / span)))
+
+
+def _entry_curve_signal(position: float, vec: np.ndarray, semantic_dispersion: float) -> float:
+    t = max(0.0, min(1.0, position))
+    centered = t - 0.5
+    phase = 2 * math.pi * _vec_unit(vec, 53)
+
+    linear = 2.0 * centered
+    arc = 1.0 - 4.0 * centered * centered
+    low_wave = math.sin(math.pi * t + phase)
+    bend_wave = math.sin(2 * math.pi * t + phase * 0.7)
+    high_wave = math.sin(3 * math.pi * t + phase * 1.3)
+
+    linear_weight = 0.45 + 0.40 * abs(_vec_signed(vec, 47))
+    arc_weight = 0.25 + 0.35 * abs(_vec_signed(vec, 48))
+    bend_weight = (0.10 + 0.55 * semantic_dispersion) * abs(_vec_signed(vec, 49))
+    high_weight = 0.38 * semantic_dispersion * abs(_vec_signed(vec, 50))
+
+    signal = (
+        linear * linear_weight * (1.0 if _vec_signed(vec, 47) >= 0 else -1.0)
+        + arc * arc_weight * (1.0 if _vec_signed(vec, 48) >= 0 else -1.0)
+        + low_wave * (0.18 + 0.34 * semantic_dispersion) * _vec_signed(vec, 51)
+        + bend_wave * bend_weight * (1.0 if _vec_signed(vec, 49) >= 0 else -1.0)
+        + high_wave * high_weight * (1.0 if _vec_signed(vec, 50) >= 0 else -1.0)
+    )
+    normalizer = linear_weight + arc_weight + bend_weight + high_weight + 0.36
+    return max(-1.0, min(1.0, signal / max(normalizer, 1e-6)))
+
+
 def map_function_word_to_block(
     fw_token: dict,
     emotion: str,
     entry_vector: np.ndarray,
     token_index: int = 0,
     total_tokens: int = 1,
+    semantic_dispersion: float = 0.5,
 ) -> dict:
     category = fw_token["category"]
     count = fw_token["count"]
@@ -120,7 +201,9 @@ def map_function_word_to_block(
 
     count_norm = min(count / 50.0, 1.0)
     base_side = BLOCK_MIN_SIZE + (BLOCK_MAX_SIZE - BLOCK_MIN_SIZE) * (count_norm ** BLOCK_SIZE_POWER)
-    side = base_side * BLOCK_SIZE_SCALE.get(category, 1.0)
+    category_scale = BLOCK_SIZE_SCALE.get(category, 1.0) ** BLOCK_CATEGORY_SCALE_POWER
+    intensity_scale = 1.0 + (intensity - 0.5) * 2.0 * BLOCK_SIZE_INTENSITY_INFLUENCE
+    side = base_side * category_scale * max(0.25, intensity_scale)
 
     aspect = BLOCK_ASPECT_RATIOS.get(category, 1.0)
     area = side * side
@@ -140,13 +223,40 @@ def map_function_word_to_block(
     base_spread_radius = content_width * BLOCK_X_RANGE / 2
     effective_radius = base_spread_radius * (0.4 + 0.6 * (spread ** BLOCK_SPREAD_CURVE))
     entry_spread_gain = 0.8 + 0.9 * abs(_vec_signed(vec, 11))
+    semantic_dispersion = max(0.0, min(1.0, semantic_dispersion))
+    semantic_spread_gain = BLOCK_SEMANTIC_SPREAD_MIN + (
+        BLOCK_SEMANTIC_SPREAD_MAX - BLOCK_SEMANTIC_SPREAD_MIN
+    ) * semantic_dispersion
+    curve_signal = _entry_curve_signal(position, vec, semantic_dispersion)
+    curve_center_x = CANVAS_SIZE / 2 + curve_signal * content_width * BLOCK_CURVE_AMPLITUDE
+    curve_center_x += (
+        math.sin(2 * math.pi * position * (1.4 + 1.8 * semantic_dispersion) + entry_phase + token_phase)
+        * BLOCK_CURVE_JITTER
+        * (0.35 + 0.65 * spread)
+        * (0.45 + 0.55 * semantic_dispersion)
+    )
     x_from_position = (position - 0.5) * 0.65
     x_from_intensity = (intensity - 0.5) * 0.85
     x_from_hash = (token_hash - 0.5) * 1.1
-    x_from_wave = math.cos(2 * math.pi * position * (1.0 + _vec_unit(vec, 17)) + entry_phase + token_phase) * 0.35
+    x_from_wave = (
+        math.cos(2 * math.pi * position * (1.0 + _vec_unit(vec, 17)) + entry_phase + token_phase)
+        * 0.35
+    )
     x_signal = x_from_position + x_from_intensity + x_from_hash + x_from_wave
-    x_center = CANVAS_SIZE / 2 + x_signal * effective_radius * entry_spread_gain
-    x_center += math.cos(token_phase + seq_phase + entry_phase) * BLOCK_X_JITTER * (0.15 + 0.85 * spread)
+    x_center = (
+        curve_center_x
+        + x_signal
+        * effective_radius
+        * entry_spread_gain
+        * BLOCK_CURVE_SCATTER_SCALE
+        * semantic_spread_gain
+    )
+    x_center += (
+        math.cos(token_phase + seq_phase + entry_phase)
+        * BLOCK_X_JITTER
+        * (0.15 + 0.85 * spread)
+        * semantic_spread_gain
+    )
 
     x = max(CANVAS_PADDING, min(CANVAS_SIZE - CANVAS_PADDING - w, x_center - w / 2))
     y = max(CANVAS_PADDING, min(CANVAS_SIZE - CANVAS_PADDING - h, y_center - h / 2))
@@ -160,7 +270,12 @@ def map_function_word_to_block(
     return {"x": float(x), "y": float(y), "w": float(w), "h": float(h), "r": r, "g": g, "b": b, "alpha": float(alpha)}
 
 
-def map_content_words_to_metaballs(clusters: dict, weights: dict, entry_vector: np.ndarray) -> list[dict]:
+def map_content_words_to_metaballs(
+    clusters: dict,
+    weights: dict,
+    entry_vector: np.ndarray,
+    semantic_dispersion: float = 0.5,
+) -> list[dict]:
     if not clusters:
         return []
     cluster_word_lists = [clusters[cid] for cid in sorted(clusters.keys()) if clusters[cid]]
@@ -179,6 +294,14 @@ def map_content_words_to_metaballs(clusters: dict, weights: dict, entry_vector: 
     ellipse_y = 0.7 + 0.8 * _vec_unit(vec, 23)
     weight_gamma = 0.6 + 1.4 * _vec_unit(vec, 29)
     radius_scale = 0.85 + 0.7 * _vec_unit(vec, 31)
+    semantic_dispersion = max(0.0, min(1.0, semantic_dispersion))
+    warp_strength = METABALL_WARP_STRENGTH * (
+        METABALL_CALM_WARP_RATIO + (1.0 - METABALL_CALM_WARP_RATIO) * semantic_dispersion
+    )
+    anisotropy = METABALL_ANISOTROPY * (
+        METABALL_CALM_ANISOTROPY_RATIO
+        + (1.0 - METABALL_CALM_ANISOTROPY_RATIO) * semantic_dispersion
+    )
 
     metaballs = []
     cluster_centers_canvas = []
@@ -209,12 +332,23 @@ def map_content_words_to_metaballs(clusters: dict, weights: dict, entry_vector: 
                     "y": float(cy + math.sin(theta) * offset_scale),
                     "radius": float(radius),
                     "weight": float(w_weight),
+                    "warp_strength": float(warp_strength),
+                    "anisotropy": float(anisotropy),
                 }
             )
 
     for cx, cy, n_words in cluster_centers_canvas:
         center_radius = METABALL_BASE_RADIUS * (0.8 + 0.4 * n_words / max(max_words_in_cluster, 1))
-        metaballs.append({"x": float(cx), "y": float(cy), "radius": float(min(center_radius, METABALL_RADIUS_MAX)), "weight": 1.0})
+        metaballs.append(
+            {
+                "x": float(cx),
+                "y": float(cy),
+                "radius": float(min(center_radius, METABALL_RADIUS_MAX)),
+                "weight": 1.0,
+                "warp_strength": float(warp_strength),
+                "anisotropy": float(anisotropy),
+            }
+        )
 
     extra_ratio = 0.4 + 0.9 * _vec_unit(vec, 41)
     extra_count = max(0, int(METABALL_EXTRA_BALLS * extra_ratio))
@@ -230,6 +364,8 @@ def map_content_words_to_metaballs(clusters: dict, weights: dict, entry_vector: 
                 "y": float(py),
                 "radius": float(min(max(pr, METABALL_RADIUS_MIN), METABALL_RADIUS_MAX)),
                 "weight": 0.5,
+                "warp_strength": float(warp_strength),
+                "anisotropy": float(anisotropy),
             }
         )
 
@@ -241,8 +377,25 @@ def _build_metaball_field(metaballs: list[dict]) -> np.ndarray:
     ys = np.linspace(0, CANVAS_SIZE, METABALL_GRID_RES, dtype=np.float32)
     XX, YY = np.meshgrid(xs, ys)
     field = np.zeros((METABALL_GRID_RES, METABALL_GRID_RES), dtype=np.float32)
+    warp_scale = (2 * math.pi * METABALL_WARP_FREQUENCY) / max(CANVAS_SIZE, 1)
     for mb in metaballs:
-        r2 = (XX - mb["x"]) ** 2 + (YY - mb["y"]) ** 2
+        phase = 2 * math.pi * _stable_hash_unit(f"{mb['x']:.2f}:{mb['y']:.2f}:{mb['radius']:.2f}")
+        warp_strength = float(mb.get("warp_strength", METABALL_WARP_STRENGTH))
+        warp_x = (
+            np.sin(YY * warp_scale + phase)
+            + 0.45 * np.sin((XX + YY) * warp_scale * 0.63 + phase * 0.7)
+        ) * warp_strength
+        warp_y = (
+            np.cos(XX * warp_scale + phase * 1.3)
+            + 0.45 * np.cos((XX - YY) * warp_scale * 0.71 + phase)
+        ) * warp_strength
+        anisotropy = float(mb.get("anisotropy", METABALL_ANISOTROPY))
+        stretch = 1.0 + anisotropy * (2 * _stable_hash_unit(f"{phase:.5f}") - 1.0)
+        stretch = max(0.45, stretch)
+        squeeze = 1.0 / stretch
+        r2 = ((XX + warp_x - mb["x"]) * squeeze) ** 2 + (
+            (YY + warp_y - mb["y"]) * stretch
+        ) ** 2
         field += (mb["radius"] ** 2) / (r2 + 1.0)
     return field
 
